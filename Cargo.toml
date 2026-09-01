@@ -1,15 +1,21 @@
 [package]
-name = "log"
+name = "logs"
 version = "0.1.0"
 authors = ["icy"]
 edition = "2024"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Process-level tracing backend for Breeze services"
 
 [dependencies]
-# 版本号指定详见https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html
-elog = { package = "log", version = "=0.4.20" }
-log4rs = { version = "1.0.0", features = ["gzip"] }
+brz-ds = { package = "ds", path = "../ds" }
+brz-metrics = { package = "metrics", path = "../metrics", optional = true }
+thiserror = "2"
+time = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
-enable-log = []
+default = []
+metrics = ["dep:brz-metrics"]
