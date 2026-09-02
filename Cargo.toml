@@ -6,8 +6,8 @@ edition = "2024"
 description = "Process-level tracing backend for Breeze services"
 
 [dependencies]
-brz-ds = { package = "ds", path = "../ds" }
-brz-metrics = { package = "metrics", path = "../metrics", optional = true }
+brz-ds = { package = "ds", git = "https://github.com/we-breeze/ds.git", tag = "v0.0.1" }
+brz-metrics = { package = "metrics", git = "https://github.com/we-breeze/metrics.git", tag = "v0.0.1", optional = true }
 thiserror = "2"
 time = "0.3"
 tracing = "0.1"
