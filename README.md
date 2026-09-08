@@ -54,3 +54,15 @@ Enable the optional `metrics` feature to register the count-only
 new lines rejected by a full queue during that profile interval. The disabled
 build has no dependency on `brz-metrics`; `LogsGuard::dropped_lines` remains
 available in both builds and is cumulative for the process lifetime.
+
+## Releases
+
+CI runs formatting, Clippy, and tests. To publish, open **Actions → Publish → Run workflow** on `main`. Leave `retry_tag` empty to allocate the next `v0.0.x` tag. The workflow validates the code, commits the version, pushes the commit and tag atomically, and publishes to crates.io using the organization secret `CARGO_REGISTRY_TOKEN`.
+
+If publication fails after the tag was pushed, rerun with that existing tag in `retry_tag`. A normal push or pull request does not publish. Historical tags retain their original version numbers; use new release tags for registry packages.
+
+## License
+
+Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+
+The default log directory is `../logs`, relative to the process working directory. Set the log directory explicitly in deployments that require a fixed location.

@@ -1,13 +1,15 @@
 [package]
-name = "logs"
+name = "brz-logs"
 version = "0.1.0"
-authors = ["icy"]
+authors = ["we-breeze contributors"]
 edition = "2024"
 description = "Process-level tracing backend for Breeze services"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/we-breeze/logs"
 
 [dependencies]
-brz-ds = { package = "ds", git = "https://github.com/we-breeze/ds.git", tag = "v0.0.1" }
-brz-metrics = { package = "metrics", git = "https://github.com/we-breeze/metrics.git", tag = "v0.0.2", optional = true }
+brz-ds = { package = "brz-ds", version = "0.0.2" }
+brz-metrics = { package = "brz-metrics", optional = true, version = "0.0.3" }
 thiserror = "2"
 time = "0.3"
 tracing = "0.1"
@@ -19,3 +21,6 @@ tempfile = "3"
 [features]
 default = []
 metrics = ["dep:brz-metrics"]
+
+[lib]
+name = "logs"
