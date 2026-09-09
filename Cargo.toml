@@ -1,6 +1,6 @@
 [package]
 name = "brz-logs"
-version = "0.1.0"
+version = "0.0.3"
 authors = ["we-breeze contributors"]
 edition = "2024"
 description = "Process-level tracing backend for Breeze services"
