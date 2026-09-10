@@ -63,7 +63,7 @@ mod tests {
     fn defaults_match_the_example_runtime_contract() {
         let config = LogsConfig::default();
 
-        assert_eq!(config.directory.to_string_lossy(), DEFAULT_LOG_DIRECTORY);
+        assert_eq!(config.directory.to_string_lossy(), "./logs");
         assert_eq!(config.filter, "info");
         assert_eq!(config.arena_chunk_bytes, DEFAULT_ARENA_CHUNK_BYTES);
         assert_eq!(config.flush_policy, FlushPolicy::default());

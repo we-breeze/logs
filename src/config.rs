@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const DEFAULT_LOG_DIRECTORY: &str = "../logs";
+pub const DEFAULT_LOG_DIRECTORY: &str = "./logs";
 pub const DEFAULT_QUEUE_CAPACITY: usize = 16_384;
 pub const DEFAULT_ARENA_CHUNK_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;

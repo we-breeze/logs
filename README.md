@@ -2,7 +2,7 @@
 
 Process-level `tracing` output for Breeze services.
 
-The default configuration writes to `../logs` without installing a
+The default configuration writes to `./logs` without installing a
 stdout or stderr writer:
 
 - `TRACE`, `DEBUG`, and `INFO` events go to `info.log`.
@@ -65,7 +65,7 @@ If publication fails after the tag was pushed, rerun with that existing tag in `
 
 Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 
-The default log directory is `../logs`, relative to the process working directory. Set the log directory explicitly in deployments that require a fixed location.
+The default log directory is `./logs`, relative to the process working directory. Set the log directory explicitly in deployments that require a fixed location.
 
 ## Crate naming
 
@@ -75,5 +75,5 @@ library name. Existing explicit dependency aliases remain supported.
 
 ```toml
 [dependencies]
-brz-logs = "0.0.4"
+brz-logs = "0.0.5"
 ```
