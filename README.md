@@ -20,7 +20,7 @@ until shutdown:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let logs = logs::init_default()?;
+    let logs = brz_logs::init_default()?;
     tracing::info!("service started");
 
     logs.flush()?;
@@ -66,3 +66,14 @@ If publication fails after the tag was pushed, rerun with that existing tag in `
 Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 
 The default log directory is `../logs`, relative to the process working directory. Set the log directory explicitly in deployments that require a fixed location.
+
+## Crate naming
+
+The package name is `brz-logs`; the Rust library name is `brz_logs`.
+Use `brz_logs::...` in Rust code. This replaces the previous `logs`
+library name. Existing explicit dependency aliases remain supported.
+
+```toml
+[dependencies]
+brz-logs = "0.0.4"
+```

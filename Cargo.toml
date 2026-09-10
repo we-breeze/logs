@@ -23,4 +23,4 @@ default = []
 metrics = ["dep:brz-metrics"]
 
 [lib]
-name = "logs"
+name = "brz_logs"
