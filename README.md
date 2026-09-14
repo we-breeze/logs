@@ -75,5 +75,5 @@ library name. Existing explicit dependency aliases remain supported.
 
 ```toml
 [dependencies]
-brz-logs = "0.0.5"
+brz-logs = "0.0.6"
 ```
