@@ -10,7 +10,7 @@ stdout or stderr writer:
 - `ERROR` events go to `error.log`.
 - target `breeze.api` goes to `api.log`.
 - target `breeze.slow` goes to `slow.log`.
-- target `breeze.gateway` goes to `gateway.log`.
+- target `breeze.fallback` goes to `fallback.log`.
 
 The observability targets take precedence over event level, so their events are
 not duplicated in the ordinary level files.

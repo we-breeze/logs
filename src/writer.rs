@@ -60,7 +60,7 @@ enum Destination {
     Error,
     Api,
     Slow,
-    Gateway,
+    Fallback,
 }
 
 impl Destination {
@@ -68,7 +68,7 @@ impl Destination {
         match metadata.target() {
             "breeze.api" => return Self::Api,
             "breeze.slow" => return Self::Slow,
-            "breeze.gateway" => return Self::Gateway,
+            "breeze.fallback" => return Self::Fallback,
             _ => {}
         }
         let level = metadata.level();
@@ -488,7 +488,7 @@ struct LogFiles {
     error: File,
     api: File,
     slow: File,
-    gateway: File,
+    fallback: File,
 }
 
 impl LogFiles {
@@ -499,7 +499,7 @@ impl LogFiles {
             error: open_file(directory.join("error.log"))?,
             api: open_file(directory.join("api.log"))?,
             slow: open_file(directory.join("slow.log"))?,
-            gateway: open_file(directory.join("gateway.log"))?,
+            fallback: open_file(directory.join("fallback.log"))?,
         })
     }
 
@@ -509,7 +509,7 @@ impl LogFiles {
         write_destination(&mut self.error, Destination::Error, lines)?;
         write_destination(&mut self.api, Destination::Api, lines)?;
         write_destination(&mut self.slow, Destination::Slow, lines)?;
-        write_destination(&mut self.gateway, Destination::Gateway, lines)
+        write_destination(&mut self.fallback, Destination::Fallback, lines)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -518,7 +518,7 @@ impl LogFiles {
         self.error.flush()?;
         self.api.flush()?;
         self.slow.flush()?;
-        self.gateway.flush()
+        self.fallback.flush()
     }
 }
 
