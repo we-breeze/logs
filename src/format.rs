@@ -32,14 +32,14 @@ where
 fn event_label(metadata: &tracing::Metadata<'_>) -> &'static str {
     match metadata.target() {
         "breeze.api" => "API",
-        "breeze.gateway" => "GATEWAY",
+        "breeze.fallback" => "FALLBACK",
         "breeze.slow" => "SLOW",
         _ => metadata.level().as_str(),
     }
 }
 
 pub(crate) fn is_dedicated_target(target: &str) -> bool {
-    matches!(target, "breeze.api" | "breeze.gateway" | "breeze.slow")
+    matches!(target, "breeze.api" | "breeze.fallback" | "breeze.slow")
 }
 
 fn shanghai_now() -> OffsetDateTime {

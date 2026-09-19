@@ -128,7 +128,7 @@ mod tests {
         tracing::dispatcher::with_default(&dispatch, || {
             tracing::info!(target: "breeze.api", "GET /health?q=ready 200 7ms 0 2");
             tracing::warn!(target: "breeze.slow", "mysql query 1200ms true SELECT 1");
-            tracing::info!(target: "breeze.gateway", "GET /api 200 4ms - 12");
+            tracing::info!(target: "breeze.fallback", "GET /api 200 4ms - 12");
         });
         guard.flush().unwrap();
 
@@ -141,9 +141,9 @@ mod tests {
         assert!(slow.contains("[SLOW]"));
         assert!(slow.contains("mysql query 1200ms true SELECT 1"));
         assert!(
-            fs::read_to_string(directory.path().join("gateway.log"))
+            fs::read_to_string(directory.path().join("fallback.log"))
                 .unwrap()
-                .contains("[GATEWAY] GET /api 200 4ms - 12")
+                .contains("[FALLBACK] GET /api 200 4ms - 12")
         );
         assert!(
             !fs::read_to_string(directory.path().join("info.log"))
