@@ -58,10 +58,20 @@ enum Destination {
     Info,
     Warn,
     Error,
+    Api,
+    Slow,
+    Gateway,
 }
 
 impl Destination {
-    fn for_level(level: &Level) -> Self {
+    fn for_metadata(metadata: &Metadata<'_>) -> Self {
+        match metadata.target() {
+            "breeze.api" => return Self::Api,
+            "breeze.slow" => return Self::Slow,
+            "breeze.gateway" => return Self::Gateway,
+            _ => {}
+        }
+        let level = metadata.level();
         match *level {
             Level::ERROR => Self::Error,
             Level::WARN => Self::Warn,
@@ -171,7 +181,7 @@ impl<'writer> MakeWriter<'writer> for LogMakeWriter {
     }
 
     fn make_writer_for(&'writer self, metadata: &Metadata<'_>) -> Self::Writer {
-        self.writer(Destination::for_level(metadata.level()))
+        self.writer(Destination::for_metadata(metadata))
     }
 }
 
@@ -476,6 +486,9 @@ struct LogFiles {
     info: File,
     warn: File,
     error: File,
+    api: File,
+    slow: File,
+    gateway: File,
 }
 
 impl LogFiles {
@@ -484,19 +497,28 @@ impl LogFiles {
             info: open_file(directory.join("info.log"))?,
             warn: open_file(directory.join("warn.log"))?,
             error: open_file(directory.join("error.log"))?,
+            api: open_file(directory.join("api.log"))?,
+            slow: open_file(directory.join("slow.log"))?,
+            gateway: open_file(directory.join("gateway.log"))?,
         })
     }
 
     fn write_batch(&mut self, lines: &[QueuedLine]) -> io::Result<()> {
         write_destination(&mut self.info, Destination::Info, lines)?;
         write_destination(&mut self.warn, Destination::Warn, lines)?;
-        write_destination(&mut self.error, Destination::Error, lines)
+        write_destination(&mut self.error, Destination::Error, lines)?;
+        write_destination(&mut self.api, Destination::Api, lines)?;
+        write_destination(&mut self.slow, Destination::Slow, lines)?;
+        write_destination(&mut self.gateway, Destination::Gateway, lines)
     }
 
     fn flush(&mut self) -> io::Result<()> {
         self.info.flush()?;
         self.warn.flush()?;
-        self.error.flush()
+        self.error.flush()?;
+        self.api.flush()?;
+        self.slow.flush()?;
+        self.gateway.flush()
     }
 }
 
