@@ -79,7 +79,9 @@ dependencies = [
 
 [[package]]
 name = "brz-metrics"
-version = "0.0.5"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eeb1162949f8ed979de2918bc9be7365794b07be556f3d27e3c194833f35a3a"
 dependencies = [
  "ahash",
  "arc-swap",
