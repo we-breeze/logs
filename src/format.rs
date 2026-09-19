@@ -21,12 +21,25 @@ where
         event: &Event<'_>,
     ) -> fmt::Result {
         write_timestamp(&mut writer, shanghai_now())?;
-        write!(&mut writer, " [{}] ", event.metadata().level())?;
+        write!(&mut writer, " [{}] ", event_label(event.metadata()))?;
         context
             .field_format()
             .format_fields(writer.by_ref(), event)?;
         writeln!(writer)
     }
+}
+
+fn event_label(metadata: &tracing::Metadata<'_>) -> &'static str {
+    match metadata.target() {
+        "breeze.api" => "API",
+        "breeze.gateway" => "GATEWAY",
+        "breeze.slow" => "SLOW",
+        _ => metadata.level().as_str(),
+    }
+}
+
+pub(crate) fn is_dedicated_target(target: &str) -> bool {
+    matches!(target, "breeze.api" | "breeze.gateway" | "breeze.slow")
 }
 
 fn shanghai_now() -> OffsetDateTime {

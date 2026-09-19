@@ -11,6 +11,7 @@ pub use config::{
 use thiserror::Error;
 use tracing::Dispatch;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::{FilterExt as _, filter_fn};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::prelude::*;
 pub use writer::LogsGuard;
@@ -43,12 +44,21 @@ fn build_dispatch(config: LogsConfig) -> Result<(Dispatch, LogsGuard), InitError
     let filter = EnvFilter::try_new(&config.filter)
         .map_err(|error| InitError::InvalidFilter(error.to_string()))?;
     let (make_writer, guard) = writer::start(&config)?;
-    let layer = tracing_subscriber::fmt::layer()
+    let ordinary = tracing_subscriber::fmt::layer()
+        .event_format(format::BreezeEventFormat)
+        .with_ansi(false)
+        .with_writer(make_writer.clone())
+        .with_filter(filter.and(filter_fn(|metadata| {
+            !format::is_dedicated_target(metadata.target())
+        })));
+    let access = tracing_subscriber::fmt::layer()
         .event_format(format::BreezeEventFormat)
         .with_ansi(false)
         .with_writer(make_writer)
-        .with_filter(filter);
-    let subscriber = tracing_subscriber::registry().with(layer);
+        .with_filter(filter_fn(|metadata| {
+            format::is_dedicated_target(metadata.target())
+        }));
+    let subscriber = tracing_subscriber::registry().with(ordinary).with(access);
     Ok((Dispatch::new(subscriber), guard))
 }
 
@@ -104,6 +114,47 @@ mod tests {
             assert!(!output.contains("Asia/Shanghai"));
             assert!(!output.contains("CST"));
         }
+    }
+
+    #[test]
+    fn routes_observability_targets_to_dedicated_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = LogsConfig::default()
+            .with_directory(directory.path())
+            .with_filter("error")
+            .with_flush_policy(FlushPolicy::EveryLine);
+        let (dispatch, guard) = build_dispatch(config).unwrap();
+
+        tracing::dispatcher::with_default(&dispatch, || {
+            tracing::info!(target: "breeze.api", "GET /health?q=ready 200 7ms 0 2");
+            tracing::warn!(target: "breeze.slow", "mysql query 1200ms true SELECT 1");
+            tracing::info!(target: "breeze.gateway", "GET /api 200 4ms - 12");
+        });
+        guard.flush().unwrap();
+
+        assert!(
+            fs::read_to_string(directory.path().join("api.log"))
+                .unwrap()
+                .contains("[API] GET /health?q=ready 200 7ms 0 2")
+        );
+        let slow = fs::read_to_string(directory.path().join("slow.log")).unwrap();
+        assert!(slow.contains("[SLOW]"));
+        assert!(slow.contains("mysql query 1200ms true SELECT 1"));
+        assert!(
+            fs::read_to_string(directory.path().join("gateway.log"))
+                .unwrap()
+                .contains("[GATEWAY] GET /api 200 4ms - 12")
+        );
+        assert!(
+            !fs::read_to_string(directory.path().join("info.log"))
+                .unwrap()
+                .contains("/health")
+        );
+        assert!(
+            !fs::read_to_string(directory.path().join("warn.log"))
+                .unwrap()
+                .contains("SELECT 1")
+        );
     }
 
     #[test]

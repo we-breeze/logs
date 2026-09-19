@@ -8,6 +8,15 @@ stdout or stderr writer:
 - `TRACE`, `DEBUG`, and `INFO` events go to `info.log`.
 - `WARN` events go to `warn.log`.
 - `ERROR` events go to `error.log`.
+- target `breeze.api` goes to `api.log`.
+- target `breeze.slow` goes to `slow.log`.
+- target `breeze.gateway` goes to `gateway.log`.
+
+The observability targets take precedence over event level, so their events are
+not duplicated in the ordinary level files.
+All three dedicated files bypass `RUST_LOG` and render `[API]`, `[GATEWAY]`,
+and `[SLOW]` respectively. Their originating crate features still control
+whether the events are emitted.
 
 Every line uses a fixed UTC+8 wall-clock timestamp without a timezone suffix:
 
