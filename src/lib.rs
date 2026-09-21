@@ -6,7 +6,7 @@ use std::io;
 
 pub use config::{
     DEFAULT_ARENA_CHUNK_BYTES, DEFAULT_LOG_DIRECTORY, DEFAULT_MAX_LINE_BYTES,
-    DEFAULT_QUEUE_CAPACITY, FlushPolicy, LogsConfig, OverflowPolicy,
+    DEFAULT_QUEUE_CAPACITY, FlushPolicy, LogsConfig, OverflowPolicy, RotationPolicy,
 };
 use thiserror::Error;
 use tracing::Dispatch;
@@ -77,6 +77,7 @@ mod tests {
         assert_eq!(config.filter, "info");
         assert_eq!(config.arena_chunk_bytes, DEFAULT_ARENA_CHUNK_BYTES);
         assert_eq!(config.flush_policy, FlushPolicy::default());
+        assert_eq!(config.rotation_policy, RotationPolicy::Never);
         assert_eq!(config.overflow_policy, OverflowPolicy::DropNewest);
     }
 

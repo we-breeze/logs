@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 pub const DEFAULT_LOG_DIRECTORY: &str = "./logs";
@@ -18,6 +19,29 @@ pub enum FlushPolicy {
     Interval(Duration),
     IntervalAndError(Duration),
     EveryLine,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RotationPolicy {
+    #[default]
+    Never,
+    Hourly,
+    Daily,
+}
+
+impl FromStr for RotationPolicy {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "never" => Ok(Self::Never),
+            "hourly" => Ok(Self::Hourly),
+            "daily" => Ok(Self::Daily),
+            _ => Err(format!(
+                "unsupported log rotation policy {value:?}; expected never, hourly, or daily"
+            )),
+        }
+    }
 }
 
 impl Default for FlushPolicy {
@@ -50,6 +74,7 @@ pub struct LogsConfig {
     pub queue_capacity: usize,
     pub arena_chunk_bytes: usize,
     pub flush_policy: FlushPolicy,
+    pub rotation_policy: RotationPolicy,
     pub overflow_policy: OverflowPolicy,
     pub max_line_bytes: usize,
 }
@@ -62,6 +87,7 @@ impl Default for LogsConfig {
             queue_capacity: DEFAULT_QUEUE_CAPACITY,
             arena_chunk_bytes: DEFAULT_ARENA_CHUNK_BYTES,
             flush_policy: FlushPolicy::default(),
+            rotation_policy: RotationPolicy::default(),
             overflow_policy: OverflowPolicy::default(),
             max_line_bytes: DEFAULT_MAX_LINE_BYTES,
         }
@@ -80,6 +106,11 @@ impl LogsConfig {
             && !filter.trim().is_empty()
         {
             config.filter = filter;
+        }
+        if let Ok(rotation_policy) = std::env::var("BREEZE_LOG_ROTATION")
+            && let Ok(rotation_policy) = rotation_policy.parse()
+        {
+            config.rotation_policy = rotation_policy;
         }
         config
     }
@@ -106,6 +137,11 @@ impl LogsConfig {
 
     pub fn with_flush_policy(mut self, flush_policy: FlushPolicy) -> Self {
         self.flush_policy = flush_policy;
+        self
+    }
+
+    pub fn with_rotation_policy(mut self, rotation_policy: RotationPolicy) -> Self {
+        self.rotation_policy = rotation_policy;
         self
     }
 
@@ -146,5 +182,18 @@ impl LogsConfig {
             return Err("log flush interval must be greater than zero".to_string());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_rotation_policy_case_insensitively() {
+        assert_eq!("never".parse(), Ok(RotationPolicy::Never));
+        assert_eq!("HOURLY".parse(), Ok(RotationPolicy::Hourly));
+        assert_eq!(" daily ".parse(), Ok(RotationPolicy::Daily));
+        assert!("weekly".parse::<RotationPolicy>().is_err());
     }
 }

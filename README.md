@@ -42,7 +42,15 @@ queue, two-chunk ephemeral line arena, maximum line size, overflow behavior,
 and flush policy. Each arena chunk defaults to 16 MiB, so the arena owns one
 32 MiB backing buffer. `with_arena_chunk_bytes` can change the per-chunk
 capacity during initialization. `LogsConfig::from_env` additionally reads
-`BREEZE_LOG_DIR` and `RUST_LOG`.
+`BREEZE_LOG_DIR`, `BREEZE_LOG_ROTATION`, and `RUST_LOG`.
+
+Time-based file rotation is disabled by default. Set `BREEZE_LOG_ROTATION` to
+`hourly` or `daily`, or configure `RotationPolicy` directly. Rotation uses the
+same fixed UTC+8 clock as log timestamps. The active names remain `info.log`,
+`warn.log`, `error.log`, `api.log`, `slow.log`, and `fallback.log`; completed
+periods are archived as `info.log.20260921-16` for hourly rotation or
+`info.log.20260921` for daily rotation. The UTC+8 offset is not included in the
+file name. Rotation does not delete or compress archives.
 
 Each formatted line starts with an arena segment whose capacity adapts between
 512 bytes, 1 KiB, and 2 KiB. Overflow appends geometrically growing segments

@@ -6,6 +6,8 @@ use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::registry::LookupSpan;
 
+pub(crate) const FIXED_UTC_PLUS_8_SECONDS: i64 = 8 * 60 * 60;
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BreezeEventFormat;
 
@@ -46,8 +48,9 @@ fn shanghai_now() -> OffsetDateTime {
     OffsetDateTime::now_utc().to_offset(shanghai_offset())
 }
 
-fn shanghai_offset() -> UtcOffset {
-    UtcOffset::from_hms(8, 0, 0).expect("UTC+8 is a valid fixed offset")
+pub(crate) fn shanghai_offset() -> UtcOffset {
+    UtcOffset::from_whole_seconds(FIXED_UTC_PLUS_8_SECONDS as i32)
+        .expect("UTC+8 is a valid fixed offset")
 }
 
 pub(crate) fn write_timestamp(
