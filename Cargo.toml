@@ -9,7 +9,7 @@ repository = "https://github.com/we-breeze/logs"
 
 [dependencies]
 brz-ds = { package = "brz-ds", version = "0.0.2" }
-brz-metrics = { package = "brz-metrics", version = "=0.0.6", optional = true }
+brz-metrics = { package = "brz-metrics", version = "=0.0.7", optional = true }
 thiserror = "2"
 time = "0.3"
 tracing = "0.1"
