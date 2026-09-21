@@ -1,18 +1,20 @@
 use std::array;
 use std::fs::{File, OpenOptions};
 use std::io::{self, IoSlice, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use brz_ds::{EphemeralBytesArena, EphemeralBytesMut};
+use time::OffsetDateTime;
 use tracing::{Level, Metadata};
 use tracing_subscriber::fmt::MakeWriter;
 
-use crate::{FlushPolicy, LogsConfig, OverflowPolicy};
+use crate::format::{FIXED_UTC_PLUS_8_SECONDS, shanghai_offset};
+use crate::{FlushPolicy, LogsConfig, OverflowPolicy, RotationPolicy};
 
 #[cfg(feature = "metrics")]
 use brz_metrics::Metric;
@@ -22,6 +24,7 @@ const MIN_INITIAL_LINE_BYTES: usize = 512;
 const MAX_INITIAL_LINE_BYTES: usize = 2 * 1024;
 const LOW_USAGE_SAMPLE_COUNT: usize = 512;
 const MAX_VECTORED_SLICES: usize = 1024;
+const NANOS_PER_SECOND: i128 = 1_000_000_000;
 
 #[cfg(feature = "metrics")]
 #[derive(Clone, Copy)]
@@ -268,7 +271,13 @@ impl Drop for LogsGuard {
 
 pub(crate) fn start(config: &LogsConfig) -> io::Result<(LogMakeWriter, LogsGuard)> {
     std::fs::create_dir_all(&config.directory)?;
-    let files = LogFiles::open(&config.directory)?;
+    let rotation = RotationSchedule::new(config.rotation_policy);
+    let files = LogFiles::open(
+        &config.directory,
+        rotation
+            .as_ref()
+            .map(|schedule| (schedule.policy, schedule.current_period)),
+    )?;
     let (sender, receiver) = mpsc::sync_channel(config.queue_capacity);
     let dropped_lines = Arc::new(AtomicU64::new(0));
     let last_error = Arc::new(Mutex::new(None));
@@ -279,7 +288,16 @@ pub(crate) fn start(config: &LogsConfig) -> io::Result<(LogMakeWriter, LogsGuard
     let batch_limit = config.queue_capacity;
     let worker = thread::Builder::new()
         .name("breeze-logs".to_string())
-        .spawn(move || run_worker(receiver, files, flush_policy, batch_limit, worker_error))?;
+        .spawn(move || {
+            run_worker(
+                receiver,
+                files,
+                flush_policy,
+                rotation,
+                batch_limit,
+                worker_error,
+            )
+        })?;
     let make_writer = LogMakeWriter {
         sender: sender.clone(),
         dropped_lines: Arc::clone(&dropped_lines),
@@ -482,44 +500,246 @@ impl EventWriter<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RotationPeriod(i128);
+
+impl RotationPolicy {
+    fn period_nanos(self) -> Option<i128> {
+        match self {
+            Self::Never => None,
+            Self::Hourly => Some(60 * 60 * NANOS_PER_SECOND),
+            Self::Daily => Some(24 * 60 * 60 * NANOS_PER_SECOND),
+        }
+    }
+}
+
+fn local_unix_nanos(timestamp: OffsetDateTime) -> i128 {
+    timestamp.unix_timestamp_nanos() + i128::from(FIXED_UTC_PLUS_8_SECONDS) * NANOS_PER_SECOND
+}
+
+fn rotation_period(policy: RotationPolicy, timestamp: OffsetDateTime) -> Option<RotationPeriod> {
+    policy
+        .period_nanos()
+        .map(|period| RotationPeriod(local_unix_nanos(timestamp).div_euclid(period)))
+}
+
+fn duration_until_next_period(policy: RotationPolicy, timestamp: OffsetDateTime) -> Duration {
+    let period_nanos = policy
+        .period_nanos()
+        .expect("a rotation schedule has a finite period");
+    let local_nanos = local_unix_nanos(timestamp);
+    let next_period = (local_nanos.div_euclid(period_nanos) + 1) * period_nanos;
+    let remaining = next_period - local_nanos;
+    Duration::new(
+        u64::try_from(remaining / NANOS_PER_SECOND)
+            .expect("the next rotation boundary is at most one day away"),
+        u32::try_from(remaining % NANOS_PER_SECOND).expect("subsecond nanoseconds fit in u32"),
+    )
+}
+
+fn archive_suffix(policy: RotationPolicy, period: RotationPeriod) -> io::Result<String> {
+    let period_seconds = policy
+        .period_nanos()
+        .expect("a rotation period has a finite duration")
+        / NANOS_PER_SECOND;
+    let local_start = period
+        .0
+        .checked_mul(period_seconds)
+        .ok_or_else(|| io::Error::other("log rotation period is out of range"))?;
+    let utc_start = local_start - i128::from(FIXED_UTC_PLUS_8_SECONDS);
+    let timestamp = OffsetDateTime::from_unix_timestamp(
+        i64::try_from(utc_start)
+            .map_err(|_| io::Error::other("log rotation timestamp is out of range"))?,
+    )
+    .map_err(io::Error::other)?
+    .to_offset(shanghai_offset());
+    Ok(match policy {
+        RotationPolicy::Never => unreachable!("Never has no archive suffix"),
+        RotationPolicy::Hourly => format!(
+            "{:04}{:02}{:02}-{:02}",
+            timestamp.year(),
+            timestamp.month() as u8,
+            timestamp.day(),
+            timestamp.hour()
+        ),
+        RotationPolicy::Daily => format!(
+            "{:04}{:02}{:02}",
+            timestamp.year(),
+            timestamp.month() as u8,
+            timestamp.day()
+        ),
+    })
+}
+
+struct RotationSchedule {
+    policy: RotationPolicy,
+    current_period: RotationPeriod,
+    next_deadline: Instant,
+}
+
+impl RotationSchedule {
+    fn new(policy: RotationPolicy) -> Option<Self> {
+        Self::at(policy, OffsetDateTime::now_utc(), Instant::now())
+    }
+
+    fn at(policy: RotationPolicy, wall_clock: OffsetDateTime, monotonic: Instant) -> Option<Self> {
+        Some(Self {
+            policy,
+            current_period: rotation_period(policy, wall_clock)?,
+            next_deadline: monotonic + duration_until_next_period(policy, wall_clock),
+        })
+    }
+
+    fn rotate_if_due(&mut self, files: &mut LogFiles, monotonic: Instant) -> io::Result<()> {
+        if monotonic < self.next_deadline {
+            return Ok(());
+        }
+
+        let wall_clock = OffsetDateTime::now_utc();
+        let observed_period = rotation_period(self.policy, wall_clock)
+            .expect("a rotation schedule has a current period");
+        if observed_period > self.current_period {
+            let suffix = archive_suffix(self.policy, self.current_period)?;
+            files.rotate(&suffix)?;
+            self.current_period = observed_period;
+        }
+        self.next_deadline = monotonic + duration_until_next_period(self.policy, wall_clock);
+        Ok(())
+    }
+}
+
+struct ManagedFile {
+    path: PathBuf,
+    file: Option<File>,
+}
+
+impl ManagedFile {
+    fn open(
+        path: PathBuf,
+        startup_period: Option<(RotationPolicy, RotationPeriod)>,
+    ) -> io::Result<Self> {
+        if let Some((policy, current_period)) = startup_period {
+            archive_stale_active_file(&path, policy, current_period)?;
+        }
+        Ok(Self {
+            file: Some(open_file(&path)?),
+            path,
+        })
+    }
+
+    fn file_mut(&mut self) -> &mut File {
+        self.file
+            .as_mut()
+            .expect("an active log file is open while the worker is running")
+    }
+
+    fn rotate(&mut self, suffix: &str) -> io::Result<()> {
+        if self.file_mut().metadata()?.len() == 0 {
+            return Ok(());
+        }
+
+        drop(self.file.take());
+        if let Err(error) = archive_active_file(&self.path, suffix) {
+            self.file = open_file(&self.path).ok();
+            return Err(error);
+        }
+        self.file = Some(open_file(&self.path)?);
+        Ok(())
+    }
+}
+
 struct LogFiles {
-    info: File,
-    warn: File,
-    error: File,
-    api: File,
-    slow: File,
-    fallback: File,
+    info: ManagedFile,
+    warn: ManagedFile,
+    error: ManagedFile,
+    api: ManagedFile,
+    slow: ManagedFile,
+    fallback: ManagedFile,
 }
 
 impl LogFiles {
-    fn open(directory: &Path) -> io::Result<Self> {
+    fn open(
+        directory: &Path,
+        startup_period: Option<(RotationPolicy, RotationPeriod)>,
+    ) -> io::Result<Self> {
         Ok(Self {
-            info: open_file(directory.join("info.log"))?,
-            warn: open_file(directory.join("warn.log"))?,
-            error: open_file(directory.join("error.log"))?,
-            api: open_file(directory.join("api.log"))?,
-            slow: open_file(directory.join("slow.log"))?,
-            fallback: open_file(directory.join("fallback.log"))?,
+            info: ManagedFile::open(directory.join("info.log"), startup_period)?,
+            warn: ManagedFile::open(directory.join("warn.log"), startup_period)?,
+            error: ManagedFile::open(directory.join("error.log"), startup_period)?,
+            api: ManagedFile::open(directory.join("api.log"), startup_period)?,
+            slow: ManagedFile::open(directory.join("slow.log"), startup_period)?,
+            fallback: ManagedFile::open(directory.join("fallback.log"), startup_period)?,
         })
     }
 
     fn write_batch(&mut self, lines: &[QueuedLine]) -> io::Result<()> {
-        write_destination(&mut self.info, Destination::Info, lines)?;
-        write_destination(&mut self.warn, Destination::Warn, lines)?;
-        write_destination(&mut self.error, Destination::Error, lines)?;
-        write_destination(&mut self.api, Destination::Api, lines)?;
-        write_destination(&mut self.slow, Destination::Slow, lines)?;
-        write_destination(&mut self.fallback, Destination::Fallback, lines)
+        write_destination(self.info.file_mut(), Destination::Info, lines)?;
+        write_destination(self.warn.file_mut(), Destination::Warn, lines)?;
+        write_destination(self.error.file_mut(), Destination::Error, lines)?;
+        write_destination(self.api.file_mut(), Destination::Api, lines)?;
+        write_destination(self.slow.file_mut(), Destination::Slow, lines)?;
+        write_destination(self.fallback.file_mut(), Destination::Fallback, lines)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.info.flush()?;
-        self.warn.flush()?;
-        self.error.flush()?;
-        self.api.flush()?;
-        self.slow.flush()?;
-        self.fallback.flush()
+        self.info.file_mut().flush()?;
+        self.warn.file_mut().flush()?;
+        self.error.file_mut().flush()?;
+        self.api.file_mut().flush()?;
+        self.slow.file_mut().flush()?;
+        self.fallback.file_mut().flush()
     }
+
+    fn rotate(&mut self, suffix: &str) -> io::Result<()> {
+        self.flush()?;
+        self.info.rotate(suffix)?;
+        self.warn.rotate(suffix)?;
+        self.error.rotate(suffix)?;
+        self.api.rotate(suffix)?;
+        self.slow.rotate(suffix)?;
+        self.fallback.rotate(suffix)
+    }
+}
+
+fn archive_stale_active_file(
+    path: &Path,
+    policy: RotationPolicy,
+    current_period: RotationPeriod,
+) -> io::Result<()> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if metadata.len() == 0 {
+        return Ok(());
+    }
+
+    let modified = OffsetDateTime::from(metadata.modified()?);
+    let Some(modified_period) = rotation_period(policy, modified) else {
+        return Ok(());
+    };
+    if modified_period < current_period {
+        archive_active_file(path, &archive_suffix(policy, modified_period)?)?;
+    }
+    Ok(())
+}
+
+fn archive_active_file(path: &Path, suffix: &str) -> io::Result<()> {
+    let file_name = path
+        .file_name()
+        .expect("managed log paths have a file name")
+        .to_string_lossy();
+    let base_name = format!("{file_name}.{suffix}");
+    let mut archive = path.with_file_name(&base_name);
+    let mut collision = 0_u32;
+    while archive.exists() {
+        collision = collision
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("too many colliding log archives"))?;
+        archive = path.with_file_name(format!("{base_name}.{collision}"));
+    }
+    std::fs::rename(path, archive)
 }
 
 fn open_file(path: impl AsRef<Path>) -> io::Result<File> {
@@ -569,10 +789,17 @@ fn run_worker(
     receiver: Receiver<Command>,
     mut files: LogFiles,
     flush_policy: FlushPolicy,
+    mut rotation: Option<RotationSchedule>,
     batch_limit: usize,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> io::Result<()> {
-    let result = worker_loop(&receiver, &mut files, flush_policy, batch_limit);
+    let result = worker_loop(
+        &receiver,
+        &mut files,
+        flush_policy,
+        &mut rotation,
+        batch_limit,
+    );
     if let Err(error) = &result {
         *last_error
             .lock()
@@ -585,6 +812,7 @@ fn worker_loop(
     receiver: &Receiver<Command>,
     files: &mut LogFiles,
     flush_policy: FlushPolicy,
+    rotation: &mut Option<RotationSchedule>,
     batch_limit: usize,
 ) -> io::Result<()> {
     let interval = flush_policy.interval();
@@ -595,7 +823,13 @@ fn worker_loop(
     loop {
         let received = match pending.take() {
             Some(command) => ReceiveResult::Command(command),
-            None => receive_next(receiver, next_flush),
+            None => receive_next(
+                receiver,
+                earliest_deadline(
+                    next_flush,
+                    rotation.as_ref().map(|schedule| schedule.next_deadline),
+                ),
+            ),
         };
 
         match received {
@@ -620,6 +854,11 @@ fn worker_loop(
                 let contains_error = batch
                     .iter()
                     .any(|line| line.destination == Destination::Error);
+                if let Some(schedule) = rotation {
+                    // This monotonic check is per worker batch, not per event. With the default
+                    // `Never` policy the branch is absent and adds no producer or worker cost.
+                    schedule.rotate_if_due(files, Instant::now())?;
+                }
                 files.write_batch(&batch)?;
                 batch.clear();
 
@@ -650,9 +889,15 @@ fn worker_loop(
                 let _ = reply.send(result);
                 return failed.map_or(Ok(()), |error| Err(io::Error::other(error)));
             }
-            ReceiveResult::FlushDeadline => {
-                files.flush()?;
-                next_flush = interval.map(|duration| Instant::now() + duration);
+            ReceiveResult::Deadline => {
+                let now = Instant::now();
+                if let Some(schedule) = rotation {
+                    schedule.rotate_if_due(files, now)?;
+                }
+                if next_flush.is_some_and(|deadline| now >= deadline) {
+                    files.flush()?;
+                    next_flush = interval.map(|duration| now + duration);
+                }
             }
             ReceiveResult::Disconnected => {
                 files.flush()?;
@@ -664,16 +909,24 @@ fn worker_loop(
 
 enum ReceiveResult {
     Command(Command),
-    FlushDeadline,
+    Deadline,
     Disconnected,
 }
 
-fn receive_next(receiver: &Receiver<Command>, next_flush: Option<Instant>) -> ReceiveResult {
-    match next_flush {
+fn earliest_deadline(first: Option<Instant>, second: Option<Instant>) -> Option<Instant> {
+    match (first, second) {
+        (Some(first), Some(second)) => Some(first.min(second)),
+        (Some(deadline), None) | (None, Some(deadline)) => Some(deadline),
+        (None, None) => None,
+    }
+}
+
+fn receive_next(receiver: &Receiver<Command>, next_deadline: Option<Instant>) -> ReceiveResult {
+    match next_deadline {
         Some(deadline) => {
             match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(command) => ReceiveResult::Command(command),
-                Err(RecvTimeoutError::Timeout) => ReceiveResult::FlushDeadline,
+                Err(RecvTimeoutError::Timeout) => ReceiveResult::Deadline,
                 Err(RecvTimeoutError::Disconnected) => ReceiveResult::Disconnected,
             }
         }
@@ -808,7 +1061,7 @@ mod tests {
             bytes: warning,
         });
 
-        let mut files = LogFiles::open(directory.path()).unwrap();
+        let mut files = LogFiles::open(directory.path(), None).unwrap();
         files.write_batch(&lines).unwrap();
         files.flush().unwrap();
 
@@ -824,6 +1077,84 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(directory.path().join("error.log")).unwrap(),
             ""
+        );
+    }
+
+    #[test]
+    fn rotation_suffixes_use_fixed_utc_plus_eight_periods() {
+        let timestamp = time::Date::from_calendar_date(2026, time::Month::September, 21)
+            .unwrap()
+            .with_hms(8, 30, 0)
+            .unwrap()
+            .assume_utc();
+
+        let hourly = rotation_period(RotationPolicy::Hourly, timestamp).unwrap();
+        let daily = rotation_period(RotationPolicy::Daily, timestamp).unwrap();
+
+        assert_eq!(
+            archive_suffix(RotationPolicy::Hourly, hourly).unwrap(),
+            "20260921-16"
+        );
+        assert_eq!(
+            archive_suffix(RotationPolicy::Daily, daily).unwrap(),
+            "20260921"
+        );
+        assert_eq!(
+            duration_until_next_period(RotationPolicy::Hourly, timestamp),
+            Duration::from_secs(30 * 60)
+        );
+
+        let utc_previous_day = time::Date::from_calendar_date(2026, time::Month::September, 20)
+            .unwrap()
+            .with_hms(16, 30, 0)
+            .unwrap()
+            .assume_utc();
+        let local_midnight = rotation_period(RotationPolicy::Hourly, utc_previous_day).unwrap();
+        assert_eq!(
+            archive_suffix(RotationPolicy::Hourly, local_midnight).unwrap(),
+            "20260921-00"
+        );
+    }
+
+    #[test]
+    fn rotation_archives_non_empty_files_and_keeps_active_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut files = LogFiles::open(directory.path(), None).unwrap();
+        files.info.file_mut().write_all(b"first period\n").unwrap();
+
+        files.rotate("20260921-16").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("info.log.20260921-16")).unwrap(),
+            "first period\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("info.log")).unwrap(),
+            ""
+        );
+        assert!(!directory.path().join("warn.log.20260921-16").exists());
+    }
+
+    #[test]
+    fn rotation_never_overwrites_an_existing_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("info.log.20260921-16"),
+            b"existing archive\n",
+        )
+        .unwrap();
+        let mut files = LogFiles::open(directory.path(), None).unwrap();
+        files.info.file_mut().write_all(b"new archive\n").unwrap();
+
+        files.rotate("20260921-16").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("info.log.20260921-16")).unwrap(),
+            "existing archive\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("info.log.20260921-16.1")).unwrap(),
+            "new archive\n"
         );
     }
 }
