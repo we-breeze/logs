@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "brz-logs"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "brz-ds",
  "brz-metrics",
