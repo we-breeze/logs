@@ -125,6 +125,25 @@ impl LineCapacityHint {
         self.capacity.load(Ordering::Relaxed)
     }
 
+    fn resize(&self, update: impl Fn(usize) -> usize) {
+        let mut capacity = self.capacity();
+        loop {
+            let next = update(capacity);
+            if next == capacity {
+                return;
+            }
+            match self.capacity.compare_exchange_weak(
+                capacity,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(actual) => capacity = actual,
+            }
+        }
+    }
+
     fn observe(&self, used: usize, overflowed: bool) {
         if overflowed {
             if self.low_usage_count.load(Ordering::Relaxed) != 0 {
@@ -133,11 +152,7 @@ impl LineCapacityHint {
             if self.capacity() >= self.maximum {
                 return;
             }
-            let _ = self
-                .capacity
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |capacity| {
-                    (capacity < self.maximum).then(|| capacity.saturating_mul(2).min(self.maximum))
-                });
+            self.resize(|capacity| capacity.saturating_mul(2).min(self.maximum));
             return;
         }
 
@@ -156,11 +171,7 @@ impl LineCapacityHint {
         if samples >= LOW_USAGE_SAMPLE_COUNT
             && self.low_usage_count.swap(0, Ordering::Relaxed) >= LOW_USAGE_SAMPLE_COUNT
         {
-            let _ = self
-                .capacity
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |capacity| {
-                    Some((capacity / 2).max(self.minimum))
-                });
+            self.resize(|capacity| (capacity / 2).max(self.minimum));
         }
     }
 }
