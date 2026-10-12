@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/we-breeze/logs"
 
 [dependencies]
-brz-ds = { package = "brz-ds", version = "0.0.4" }
-brz-metrics = { package = "brz-metrics", version = "=0.0.7", optional = true }
+brz-ds = { package = "brz-ds", version = "0.0.5" }
+brz-metrics = { package = "brz-metrics", version = "=0.0.8", optional = true }
 thiserror = "2"
 time = "0.3"
 tracing = "0.1"
