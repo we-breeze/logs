@@ -17,7 +17,7 @@ use crate::format::{FIXED_UTC_PLUS_8_SECONDS, shanghai_offset};
 use crate::{FlushPolicy, LogsConfig, OverflowPolicy, RotationPolicy};
 
 #[cfg(feature = "metrics")]
-use brz_metrics::Metric;
+use brz_metrics::{CounterMetric, MetricType};
 
 const TRUNCATED_SUFFIX: &[u8] = b"...[truncated]\n";
 const MIN_INITIAL_LINE_BYTES: usize = 512;
@@ -29,7 +29,7 @@ const NANOS_PER_SECOND: i128 = 1_000_000_000;
 #[cfg(feature = "metrics")]
 #[derive(Clone, Copy)]
 struct LogMetrics {
-    queue_dropped: Metric,
+    queue_dropped: CounterMetric,
 }
 
 #[cfg(not(feature = "metrics"))]
@@ -40,7 +40,7 @@ impl LogMetrics {
     #[cfg(feature = "metrics")]
     fn new() -> Self {
         Self {
-            queue_dropped: Metric::log("queue_dropped"),
+            queue_dropped: CounterMetric::new(MetricType::Log, "queue_dropped"),
         }
     }
 
@@ -52,7 +52,7 @@ impl LogMetrics {
     #[inline]
     fn record_queue_drop(&self) {
         #[cfg(feature = "metrics")]
-        self.queue_dropped.increment();
+        self.queue_dropped.inc();
     }
 }
 
@@ -1016,7 +1016,7 @@ mod tests {
             metrics: LogMetrics::new(),
         };
         #[cfg(feature = "metrics")]
-        let metric_before = factory.metrics.queue_dropped.snapshot().total;
+        let metric_before = factory.metrics.queue_dropped.get();
 
         let mut first = factory.writer(Destination::Info);
         first.write_all(b"first").unwrap();
@@ -1027,10 +1027,7 @@ mod tests {
 
         assert_eq!(dropped_lines.load(Ordering::Relaxed), 1);
         #[cfg(feature = "metrics")]
-        assert_eq!(
-            factory.metrics.queue_dropped.snapshot().total,
-            metric_before + 1
-        );
+        assert_eq!(factory.metrics.queue_dropped.get(), metric_before + 1);
     }
 
     #[test]

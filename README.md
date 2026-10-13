@@ -66,11 +66,11 @@ The default queue is lossy under sustained overload so logging cannot block a
 service hot path. `LogsGuard::dropped_lines` and `LogsGuard::last_error` expose
 runtime health, while `LogsGuard::flush` provides an explicit flush barrier.
 
-Enable the optional `metrics` feature to register the count-only
-`type=LOG,name=queue_dropped` profile metric. Its `total_count` is the number of
-new lines rejected by a full queue during that profile interval. The disabled
-build has no dependency on `brz-metrics`; `LogsGuard::dropped_lines` remains
-available in both builds and is cumulative for the process lifetime.
+Enable the optional `metrics` feature to export the cumulative counter
+`brz_count_total{type="LOG",name="queue_dropped"}` for lines rejected by a
+full queue. Prometheus scrapes never reset it. The disabled build has no
+dependency on `brz-metrics`; `LogsGuard::dropped_lines` remains available in
+both builds and is cumulative for the process lifetime.
 
 ## Releases
 
@@ -92,5 +92,5 @@ library name. Existing explicit dependency aliases remain supported.
 
 ```toml
 [dependencies]
-brz-logs = "0.0.6"
+brz-logs = "0.0.13"
 ```
