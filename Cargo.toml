@@ -1,6 +1,6 @@
 [package]
 name = "brz-logs"
-version = "0.0.15"
+version = "0.0.16"
 authors = ["we-breeze contributors"]
 edition = "2024"
 description = "Process-level tracing backend for Breeze services"
@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/we-breeze/logs"
 
 [dependencies]
-brz-ds = { package = "brz-ds", version = "0.0.6" }
-brz-metrics = { package = "brz-metrics", version = "=0.0.11", optional = true }
+brz-ds = { package = "brz-ds", version = "0.0.7" }
+brz-metrics = { package = "brz-metrics", version = "=0.0.12", optional = true }
 thiserror = "2"
 time = "0.3"
 tracing = "0.1"
