@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "brz-logs"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "brz-ds",
  "brz-metrics",
@@ -64,9 +64,9 @@ dependencies = [
 
 [[package]]
 name = "brz-metrics"
-version = "0.0.10"
+version = "0.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa20dbb1124676a11001bf00bfb9e56bd5e24c45ffb4722b2f5342adb4d13c4e"
+checksum = "82d857b3b02cc98ee7f12659a4596f4b46f0f72abb2f748b156b8f1a1d763f5f"
 dependencies = [
  "ahash",
  "arc-swap",
