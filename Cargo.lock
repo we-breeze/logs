@@ -41,9 +41,9 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "brz-ds"
-version = "0.0.5"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3ebae5a9350cd1790d1289e15c00835080317d8bc81125e976684bef62431b"
+checksum = "135a908678abcb3cf88880b3345de017aafbac19fa887382281934f7a7d22de9"
 dependencies = [
  "crossbeam-utils",
  "mimalloc",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "brz-logs"
-version = "0.0.13"
+version = "0.0.14"
 dependencies = [
  "brz-ds",
  "brz-metrics",
@@ -64,9 +64,9 @@ dependencies = [
 
 [[package]]
 name = "brz-metrics"
-version = "0.0.9"
+version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "551aeadb7e58f5222cd7ec97237e10c31191683e12026a105e0d1df8b2c0c5f7"
+checksum = "aa20dbb1124676a11001bf00bfb9e56bd5e24c45ffb4722b2f5342adb4d13c4e"
 dependencies = [
  "ahash",
  "arc-swap",
